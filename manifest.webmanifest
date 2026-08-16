@@ -1,0 +1,14 @@
+{
+  "name": "今晚作业",
+  "short_name": "今晚作业",
+  "description": "四年级亲子作业：能验才判，卡住只讲一步，用声音讲给她听。",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f7f1e6",
+  "theme_color": "#c45c26",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "assets/app-icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/app-icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

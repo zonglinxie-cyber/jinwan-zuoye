@@ -1,0 +1,73 @@
+{
+  "id": "pep2024-s4a",
+  "title": "人教 PEP 英语四年级上册（2024 审定新教材）",
+  "edition": "2024 年审定，2026 秋四年级上现行。已不是旧版 My classroom / My schoolbag。",
+  "units": [
+    {
+      "id": "u1",
+      "name": "Unit 1 Helping at home",
+      "when": "9月",
+      "patterns": ["I can ____.", "Let me ____.", "I sweep the floor.", "I wash the dishes.", "I make the bed."],
+      "fourSkills": [
+        { "en": "help", "zh": "帮助" },
+        { "en": "home", "zh": "家" },
+        { "en": "sweep", "zh": "扫" },
+        { "en": "floor", "zh": "地板" },
+        { "en": "wash", "zh": "洗" },
+        { "en": "dishes", "zh": "碗碟" },
+        { "en": "make the bed", "zh": "铺床" },
+        { "en": "water", "zh": "浇水" },
+        { "en": "plant", "zh": "植物" },
+        { "en": "cook", "zh": "做饭" },
+        { "en": "clean", "zh": "打扫" },
+        { "en": "mum", "zh": "妈妈" },
+        { "en": "dad", "zh": "爸爸" }
+      ],
+      "threeSkills": [{ "en": "chore", "zh": "家务" }, { "en": "together", "zh": "一起" }],
+      "doNotTeach": ["there is/are 系统语法", "比较级", "超单元家具名词当四会"]
+    },
+    {
+      "id": "u2",
+      "name": "Unit 2 My friends",
+      "when": "9–10月",
+      "patterns": ["This is my friend.", "He is tall.", "She has ..."],
+      "fourSkills": [
+        { "en": "friend", "zh": "朋友" },
+        { "en": "tall", "zh": "高的" },
+        { "en": "short", "zh": "矮的" },
+        { "en": "strong", "zh": "强壮的" },
+        { "en": "thin", "zh": "瘦的" },
+        { "en": "quiet", "zh": "安静的" },
+        { "en": "funny", "zh": "有趣的" },
+        { "en": "hair", "zh": "头发" },
+        { "en": "glasses", "zh": "眼镜" }
+      ],
+      "doNotTeach": ["形容词比较级"]
+    },
+    {
+      "id": "u3",
+      "name": "Unit 3 Places we live in",
+      "when": "10月",
+      "patterns": ["Where do you live?", "I live in ..."],
+      "fourSkills": [
+        { "en": "live", "zh": "居住" },
+        { "en": "city", "zh": "城市" },
+        { "en": "town", "zh": "城镇" },
+        { "en": "street", "zh": "街道" },
+        { "en": "house", "zh": "房子" },
+        { "en": "flat", "zh": "公寓" },
+        { "en": "near", "zh": "靠近" }
+      ]
+    },
+    { "id": "u4", "name": "Unit 4 Helping in the community", "when": "11月", "fourSkills": [], "patterns": [] },
+    { "id": "u5", "name": "Unit 5 The weather and us", "when": "11–12月", "fourSkills": [], "patterns": [] },
+    { "id": "u6", "name": "Unit 6 Changing for the seasons", "when": "12月", "fourSkills": [], "patterns": [] }
+  ],
+  "oldPepNote": "若班级仍用人教旧 PEP（My classroom / My schoolbag），在设置里改回旧词表，不要用本包判对错。",
+  "stuckChips": [
+    { "id": "word", "label": "不认识这个词" },
+    { "id": "sentence", "label": "句子读不通" },
+    { "id": "spell", "label": "不会拼" },
+    { "id": "write", "label": "会读不会写" }
+  ]
+}
