@@ -68,6 +68,15 @@ button, input, textarea, select { font: inherit; }
 }
 .primary { background: var(--accent); color: #fff; font-weight: 650; }
 .primary:disabled { opacity: 0.4; }
+.grade-cta { font-size: 1.2rem; min-height: 56px; margin: 4px 0 8px; }
+.section { font-weight: 650; margin: 18px 0 8px; }
+.row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 8px 0 16px; }
+.row3 button {
+  min-height: var(--tap); border-radius: 12px; border: 1px solid var(--line);
+  background: var(--paper); font-weight: 650;
+}
+.mark-ok.on { background: #e3f0e8; border-color: var(--ok); color: var(--ok); }
+.mark-bad.on { background: #f6ead0; border-color: var(--amber); color: var(--amber); }
 .secondary { background: #efe6d4; color: var(--ink); margin-top: 8px; }
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 

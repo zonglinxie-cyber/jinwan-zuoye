@@ -80,9 +80,9 @@ function currentItem() {
 }
 
 function visibleStatus(item) {
-  if (!item.stemConfirmed) return { label: "还没对题", cls: "" };
-  if (item.verdict === "correct") return { label: "对了", cls: "ok" };
-  if (item.verdict === "needs_redo") return { label: "要订正", cls: "redo" };
+  if (!item.stemConfirmed) return { label: "还没批", cls: "" };
+  if (item.verdict === "correct") return { label: "对", cls: "ok" };
+  if (item.verdict === "needs_redo") return { label: "错，要订正", cls: "redo" };
   if (item.verdict === "coaching") return { label: "一起看", cls: "" };
   if (item.memoryId) return { label: "记下了", cls: "ok" };
   if (["abstain", "out_of_unit", "parked"].includes(item.verdict) || item.parked)
@@ -280,7 +280,7 @@ function renderSetup() {
         <option value="together">默认：大人在旁边</option>
       </select>
     </div>
-    <button class="primary" data-act="save-setup">开始今晚的作业</button>
+    <button class="primary" data-act="save-setup">选好了，去批改作业</button>
     <p class="tiny">教材包 ${esc(KB.meta.packVersion)} · ${esc(KB.meta.updated)}</p>
   `
   );
@@ -291,17 +291,16 @@ function renderHome() {
   const q = parentQueue();
   const overtime = usedMin() >= 8;
   const mems = watchingSkills();
+  const graded = list.filter((it) => it.stemConfirmed).length;
   return `
+    ${wechatBanner()}
     <div class="top">
       <div class="title">今晚作业</div>
-      <div class="presence">
-        <button data-act="presence" data-v="solo" class="${state.settings.presence === "solo" ? "on" : ""}">我先做</button>
-        <button data-act="presence" data-v="together" class="${state.settings.presence === "together" ? "on" : ""}">大人在旁边</button>
-      </div>
+      <span class="tiny">周${weekdayName()}</span>
     </div>
-    ${wechatBanner()}
-    <p class="lede">批改今晚这张纸。记下她错在哪，先钉一步，再想开一点。</p>
-    ${overtime ? `<div class="overtime">今晚机器上已经 ${usedMin()} 分钟。余下的题可以只判不讲。</div>` : ""}
+    <p class="lede">今晚就做一件事：<b>批改她本上的题</b>。对的记下对，错的记下错在哪，再讲开。</p>
+    <button class="primary grade-cta" data-act="start-mark">批改作业</button>
+    <p class="tiny" style="margin-top:8px">先选科目，再把题目和本上的答案填上，点批改。</p>
     <div class="subjects">
       ${["math", "chinese", "english"]
         .map((s) => {
@@ -310,23 +309,20 @@ function renderHome() {
         })
         .join("")}
     </div>
-    <div class="row2">
-      <button class="primary" data-act="capture">拍一页 / 一题</button>
-      <button class="secondary" data-act="type-new" style="margin:0">手写题目</button>
-    </div>
-    <div style="height:14px"></div>
+    ${overtime ? `<div class="overtime">今晚已经 ${usedMin()} 分钟。余下的题可以只批不讲。</div>` : ""}
+    <p class="section">今晚已批 ${graded} 题</p>
     ${
       list.length
         ? list
             .map((it) => {
               const st = visibleStatus(it);
               return `<button class="list-row" data-act="open" data-id="${it.id}">
-                <span>${esc(it.stem || "还没写题目")}</span>
+                <span>${esc(it.stem || "还没填题目")}</span>
                 <span class="chip ${st.cls}">${st.label}</span>
               </button>`;
             })
             .join("")
-        : `<div class="card">把练习册翻到今天要做的那页，拍下来；字迹糊就手写题目。</div>`
+        : `<div class="card">还没有批过。点上面的「批改作业」开始。</div>`
     }
     ${
       mems.length
@@ -338,50 +334,37 @@ function renderHome() {
     }
     ${
       q.length
-        ? `<button class="secondary" data-act="go" data-to="parent">${q.length} 题等大人看 · 大约 ${Math.max(1, q.length)} 分钟</button>`
+        ? `<button class="secondary" data-act="go" data-to="parent">${q.length} 题系统不敢自动批，要你看一眼</button>`
         : ""
     }
     <button class="secondary" data-act="go" data-to="errors">错题记 · ${errorList().length} 条</button>
     <button class="foot-link" data-act="go" data-to="voice">爸爸的声音 · 已录 ${Speak.recordedCount()} / ${DAD_SCRIPTS.length} 句</button>
     <button class="foot-link" data-act="go" data-to="setup">大人设置</button>
-    <p class="tiny">Safari 分享 → 添加到主屏幕。课本尺：${esc(KB.meta.note.slice(0, 42))}…</p>
   `;
 }
 
-function renderCapture() {
-  return shell(
-    "拍照",
-    `
-    <p class="lede">字要完整。糊了不要将就。</p>
-    <input class="hidden" id="file" type="file" accept="image/*" capture="environment" />
-    ${state.photoDraft ? `<img class="photo" alt="作业照片" src="${state.photoDraft}" />` : `<div class="card">还没有照片。</div>`}
-    <button class="primary" data-act="pick-file">打开相机 / 相册</button>
-    <button class="secondary" data-act="use-photo" ${state.photoDraft ? "" : "disabled"}>用这张，去写题目</button>
-    <button class="secondary" data-act="go" data-to="type">照片看不清，我手写题目</button>
-  `,
-    "home"
-  );
-}
-
-function renderType() {
+function renderMark() {
   const it = currentItem() || {};
+  const sub = it.subject || state.subject;
   return shell(
-    "题目是这样的吗？",
+    "批改作业",
     `
-    ${it.photo ? `<img class="photo" alt="" src="${it.photo}" />` : ""}
-    <p class="lede">对题之前，系统不会判，也不会讲。</p>
-    <label>科目</label>
+    <p class="lede">把题目和本上写的填上，点批改。照片只是对照，<b>不会自动认字</b>。</p>
+    <input class="hidden" id="file" type="file" accept="image/*" capture="environment" />
+    ${it.photo ? `<img class="photo" alt="作业对照" src="${it.photo}" />` : ""}
+    <button class="secondary" data-act="pick-file" style="margin-top:0">${it.photo ? "换一张对照图" : "拍一张作业对照（可选）"}</button>
+    <p>科目</p>
     <div class="subjects">
       ${["math", "chinese", "english"]
-        .map((s) => `<button data-act="item-subject" data-v="${s}" class="${(it.subject || state.subject) === s ? "on" : ""}">${{ math: "数学", chinese: "语文", english: "英语" }[s]}</button>`)
+        .map((s) => `<button data-act="item-subject" data-v="${s}" class="${sub === s ? "on" : ""}">${{ math: "数学", chinese: "语文", english: "英语" }[s]}</button>`)
         .join("")}
     </div>
     <p>题目</p>
     <textarea id="stem" rows="3" placeholder="例如 36×28＝  或  人声（　）  或  wash the dishes">${esc(it.stem || "")}</textarea>
     <p>她本上写的</p>
     <input id="ans" type="text" value="${esc(it.childAnswer || "")}" placeholder="得数 / 词语 / 单词" />
-    ${it.subject === "chinese" ? `<p class="tiny">阅读简答请把题型改成「不打分」：在题目开头写「阅读：」</p>` : ""}
-    <button class="primary" data-act="confirm-stem">对，就是这题</button>
+    ${sub === "chinese" ? `<p class="tiny">阅读简答：题目开头写「阅读：」，不自动打对错，你来批。</p>` : ""}
+    <button class="primary grade-cta" data-act="confirm-stem">批改</button>
   `,
     "home"
   );
@@ -390,35 +373,34 @@ function renderType() {
 function renderJudge() {
   const it = currentItem();
   if (!it) return renderHome();
-  const r = applyJudge(it);
+  const r = it.authority === "parent" ? { verdict: it.verdict, reason: it.reason, where: it.where } : applyJudge(it);
   const map = {
-    correct: { t: "这题对了", cls: "ok" },
-    needs_redo: { t: "这题要订正", cls: "redo" },
-    coaching: { t: "这题不打分，只看有没有写到点", cls: "" },
-    abstain: { t: "这题我不敢判", cls: "park" },
+    correct: { t: "批改结果：对", cls: "ok" },
+    needs_redo: { t: "批改结果：错", cls: "redo" },
+    coaching: { t: "这题不自动打分，请你批", cls: "" },
+    abstain: { t: "系统批不了，请你批", cls: "park" },
     out_of_unit: { t: "这个词不在本单元", cls: "park" },
-    blocked: { t: "题目还没对过", cls: "park" },
+    blocked: { t: "题目还没填完", cls: "park" },
   };
   const v = map[r.verdict] || map.abstain;
-  const canTeach = r.verdict === "needs_redo" || r.verdict === "coaching";
+  const canTeach = r.verdict === "needs_redo" || r.verdict === "coaching" || r.verdict === "abstain";
   return shell(
-    "判",
+    "批改结果",
     `
     <p class="stem math">${esc(it.stem)}</p>
     <p>本上：${esc(it.childAnswer || "（空）")}</p>
     <div class="verdict ${v.cls}">${v.t}</div>
     ${it.where || r.where ? `<p class="where">错在哪：${esc(it.where || r.where)}</p>` : ""}
     <p class="reason">${esc(r.reason)}</p>
-    ${
-      state.settings.presence === "together"
-        ? `<div class="row2" style="margin-top:12px">
-            <button class="secondary" data-act="parent-ok" style="margin:0">其实是对的</button>
-            <button class="secondary" data-act="parent-veto" style="margin:0">这么讲不对</button>
-          </div>`
-        : ""
-    }
-    ${canTeach && !state.settings.judgeOnly && usedMin() < 12 ? `<button class="primary" data-act="go" data-to="stuck">去订正</button>` : ""}
-    <button class="secondary" data-act="go" data-to="home">下一题</button>
+    <p class="section">要改判就点这里</p>
+    <div class="row3">
+      <button class="mark-ok ${it.verdict === "correct" ? "on" : ""}" data-act="manual-grade" data-grade="ok">对</button>
+      <button class="mark-bad ${it.verdict === "needs_redo" ? "on" : ""}" data-act="manual-grade" data-grade="wrong">错</button>
+      <button class="mark-park" data-act="manual-grade" data-grade="park">先放着</button>
+    </div>
+    ${canTeach && !state.settings.judgeOnly ? `<button class="primary" data-act="go" data-to="stuck">看错在哪，听讲解</button>` : ""}
+    <button class="secondary" data-act="start-mark">批下一题</button>
+    <button class="secondary" data-act="go" data-to="home">回今晚</button>
   `,
     "home"
   );
@@ -435,7 +417,7 @@ function renderStuck() {
     <div class="chips">
       ${chips.map((c) => `<button data-act="stuck" data-v="${c.id}" class="${it.stuck === c.id ? "on" : ""}">${esc(c.label)}</button>`).join("")}
     </div>
-    <button class="primary" data-act="go" data-to="teach" ${it.stuck ? "" : "disabled"}>只讲一步</button>
+    <button class="primary" data-act="go" data-to="teach" ${it.stuck ? "" : "disabled"}>讲解这题</button>
   `,
     "judge"
   );
@@ -602,8 +584,9 @@ function render() {
   const map = {
     setup: renderSetup,
     home: renderHome,
-    capture: renderCapture,
-    type: renderType,
+    mark: renderMark,
+    capture: renderMark,
+    type: renderMark,
     judge: renderJudge,
     stuck: renderStuck,
     teach: renderTeach,
@@ -638,26 +621,22 @@ async function onClick(ev) {
     persist();
     return go("home");
   }
-  if (act === "capture") {
-    state.photoDraft = "";
-    return go("capture");
-  }
-  if (act === "pick-file") return $("#file").click();
-  if (act === "use-photo" || act === "type-new") {
+  if (act === "start-mark") {
     const it = {
       id: uid(),
       subject: state.subject,
       stem: "",
       childAnswer: "",
-      photo: act === "use-photo" ? state.photoDraft : "",
+      photo: "",
       stemConfirmed: false,
       verdict: "",
     };
     items().push(it);
     state.itemId = it.id;
     persist();
-    return go("type");
+    return go("mark");
   }
+  if (act === "pick-file") return $("#file").click();
   if (act === "item-subject") {
     const it = currentItem();
     if (it) it.subject = btn.dataset.v;
@@ -665,21 +644,65 @@ async function onClick(ev) {
     return render();
   }
   if (act === "confirm-stem") {
-    const it = currentItem();
+    let it = currentItem();
+    if (!it) {
+      it = {
+        id: uid(),
+        subject: state.subject,
+        stem: "",
+        childAnswer: "",
+        photo: "",
+        stemConfirmed: false,
+        verdict: "",
+      };
+      items().push(it);
+      state.itemId = it.id;
+    }
     it.stem = $("#stem").value.trim();
     it.childAnswer = $("#ans").value.trim();
     if (!it.subject) it.subject = detectSubject(it.stem);
     if (/^阅读[:：]/.test(it.stem)) it.itemType = "reading";
-    if (!it.stem) return;
+    if (!it.stem) {
+      alert("先把题目写上，才能批改。");
+      return;
+    }
     it.stemConfirmed = true;
+    it.authority = "";
     persist();
     return go("judge");
+  }
+  if (act === "manual-grade") {
+    const it = currentItem();
+    if (!it) return;
+    const g = btn.dataset.grade;
+    if (g === "ok") {
+      it.verdict = "correct";
+      it.authority = "parent";
+      it.reason = "大人批：对";
+      it.where = "";
+      it.parked = false;
+      markErrorFixed(it);
+    } else if (g === "wrong") {
+      it.verdict = "needs_redo";
+      it.authority = "parent";
+      it.reason = "大人批：错";
+      it.where = it.where || "大人判这题错了";
+      it.parked = false;
+      recordError(it, teachOne(it, KB, state.settings, {}));
+    } else {
+      it.parked = true;
+      it.verdict = "abstain";
+      it.authority = "parent";
+      it.reason = "先放着";
+    }
+    persist();
+    return render();
   }
   if (act === "open") {
     state.itemId = btn.dataset.id;
     const it = currentItem();
-    if (!it.stemConfirmed) return go("type");
-    if (it.verdict === "needs_redo") return go("stuck");
+    if (!it.stemConfirmed) return go("mark");
+    if (it.verdict === "needs_redo") return go("judge");
     return go("judge");
   }
   if (act === "stuck") {
@@ -788,8 +811,17 @@ async function onClick(ev) {
 
 function onChange(ev) {
   if (ev.target.id === "file" && ev.target.files && ev.target.files[0]) {
+    const stem = $("#stem");
+    const ans = $("#ans");
+    const it = currentItem();
+    if (it) {
+      if (stem) it.stem = stem.value;
+      if (ans) it.childAnswer = ans.value;
+    }
     compressImage(ev.target.files[0]).then((data) => {
-      state.photoDraft = data;
+      if (it) it.photo = data;
+      else state.photoDraft = data;
+      persist();
       render();
     });
   }
