@@ -1,4 +1,4 @@
-const CACHE = "jw-2026-08-16";
+const CACHE = "jw-2026-08-17-phone";
 const ASSETS = [
   "./",
   "./index.html",

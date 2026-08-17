@@ -1,9 +1,11 @@
 {
   "name": "今晚作业",
   "short_name": "今晚作业",
-  "description": "四年级亲子作业：能验才判，卡住只讲一步，用声音讲给她听。",
+  "description": "四年级作业：批改、记下错在哪、再想开一点。",
   "start_url": "./",
+  "scope": "./",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#f7f1e6",
   "theme_color": "#c45c26",
   "lang": "zh-CN",

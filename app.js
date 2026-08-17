@@ -51,7 +51,7 @@ const state = {
   screen: "home",
   settings: Object.assign(defaultSettings(), load(KEYS.settings, {})),
   days: load(KEYS.days, {}),
-  memory: load(KEYS.memory, { skills: {} }),
+  memory: Object.assign({ skills: {}, errors: [] }, load(KEYS.memory, {})),
   subject: "math",
   itemId: null,
   photoDraft: "",
@@ -101,17 +101,67 @@ function similarMemory(item) {
   return rec;
 }
 
-function writeMemory(item, teach) {
+function errorList() {
+  if (!Array.isArray(state.memory.errors)) state.memory.errors = [];
+  return state.memory.errors;
+}
+
+function watchingSkills() {
+  return Object.values(state.memory.skills || {}).filter((s) => s.status === "watching" || s.status === "new");
+}
+
+function bumpSkill(item, teach, passed) {
   const id = teach.skill;
-  const prev = state.memory.skills[id] || { id, fails: 0, passes: 0, banned: [], helpful: "" };
-  if (item.verdict === "correct") prev.passes += 1;
+  const prev = state.memory.skills[id] || { id, fails: 0, passes: 0, banned: [], helpful: "", where: "" };
+  if (passed) prev.passes += 1;
   else prev.fails += 1;
   prev.helpful = teach.lines[0];
+  prev.where = teach.where || item.where || prev.where;
   prev.lastKey = todayKey();
   prev.lastStem = item.stem;
   prev.status = prev.fails >= 2 && prev.passes < 2 ? "watching" : prev.passes >= 2 ? "stable" : "new";
   state.memory.skills[id] = prev;
   item.memoryId = id;
+}
+
+function recordError(item, teach) {
+  const errors = errorList();
+  const existing = errors.find((e) => e.itemId === item.id && e.key === todayKey());
+  const entry = existing || {
+    id: uid(),
+    itemId: item.id,
+    key: todayKey(),
+    subject: item.subject,
+    stem: item.stem,
+    wrongAnswer: item.childAnswer,
+    stuck: item.stuck || "",
+    skill: teach.skill,
+    where: teach.where || item.where || "",
+    helpful: teach.lines[0],
+    fixed: false,
+  };
+  entry.wrongAnswer = item.childAnswer;
+  entry.stuck = item.stuck || entry.stuck;
+  entry.where = teach.where || item.where || entry.where;
+  entry.helpful = teach.lines[0];
+  entry.fixed = false;
+  if (!existing) {
+    errors.unshift(entry);
+    bumpSkill(item, teach, false);
+  }
+  if (errors.length > 80) errors.length = 80;
+  persist();
+  return entry;
+}
+
+function markErrorFixed(item) {
+  const hit = errorList().find((e) => e.itemId === item.id && e.key === todayKey());
+  if (hit) hit.fixed = true;
+  persist();
+}
+
+function writeMemory(item, teach) {
+  bumpSkill(item, teach, item.verdict === "correct");
   persist();
 }
 
@@ -175,15 +225,30 @@ function applyJudge(item) {
   item.verdict = r.verdict;
   item.authority = r.authority;
   item.reason = r.reason;
+  if (r.where) item.where = r.where;
   if (r.verdict === "abstain" || r.verdict === "out_of_unit") item.parked = true;
   persist();
   return r;
+}
+
+function subjectName(s) {
+  return { math: "数学", chinese: "语文", english: "英语" }[s] || s;
+}
+
+function inWeChat() {
+  return /MicroMessenger/i.test(navigator.userAgent || "");
+}
+
+function wechatBanner() {
+  if (!inWeChat()) return "";
+  return `<div class="wechat-warn">请点右上角 ⋯，选「在 Safari 中打开」或「在浏览器打开」。微信里相机和记录会丢。</div>`;
 }
 
 /* ---------- screens ---------- */
 
 function shell(title, inner, backTo) {
   return `
+    ${wechatBanner()}
     <div class="top">
       ${backTo ? `<button class="back" data-act="go" data-to="${backTo}">上一页</button>` : `<span></span>`}
       <div class="title">${esc(title)}</div>
@@ -225,7 +290,7 @@ function renderHome() {
   const list = items();
   const q = parentQueue();
   const overtime = usedMin() >= 8;
-  const mems = Object.values(state.memory.skills || {}).filter((s) => s.status === "watching");
+  const mems = watchingSkills();
   return `
     <div class="top">
       <div class="title">今晚作业</div>
@@ -234,7 +299,8 @@ function renderHome() {
         <button data-act="presence" data-v="together" class="${state.settings.presence === "together" ? "on" : ""}">大人在旁边</button>
       </div>
     </div>
-    <p class="lede">能验才判，卡住只讲一步。记录只在这台设备上。</p>
+    ${wechatBanner()}
+    <p class="lede">批改今晚这张纸。记下她错在哪，先钉一步，再想开一点。</p>
     ${overtime ? `<div class="overtime">今晚机器上已经 ${usedMin()} 分钟。余下的题可以只判不讲。</div>` : ""}
     <div class="subjects">
       ${["math", "chinese", "english"]
@@ -264,8 +330,9 @@ function renderHome() {
     }
     ${
       mems.length
-        ? `<div class="card"><p>以前卡住的</p>${mems
-            .map((m) => `<p>${esc(m.helpful || m.id)} · ${m.lastKey === todayKey() ? "今天" : "还要盯"}</p>`)
+        ? `<div class="card"><p>她最近错在哪</p>${mems
+            .slice(0, 4)
+            .map((m) => `<p>${esc(m.where || m.helpful || m.id)} · ${m.lastKey === todayKey() ? "今天" : "还要盯"}</p>`)
             .join("")}</div>`
         : ""
     }
@@ -274,9 +341,10 @@ function renderHome() {
         ? `<button class="secondary" data-act="go" data-to="parent">${q.length} 题等大人看 · 大约 ${Math.max(1, q.length)} 分钟</button>`
         : ""
     }
+    <button class="secondary" data-act="go" data-to="errors">错题记 · ${errorList().length} 条</button>
     <button class="foot-link" data-act="go" data-to="voice">爸爸的声音 · 已录 ${Speak.recordedCount()} / ${DAD_SCRIPTS.length} 句</button>
     <button class="foot-link" data-act="go" data-to="setup">大人设置</button>
-    <p class="tiny">课本尺：${esc(KB.meta.note.slice(0, 42))}…</p>
+    <p class="tiny">Safari 分享 → 添加到主屏幕。课本尺：${esc(KB.meta.note.slice(0, 42))}…</p>
   `;
 }
 
@@ -339,6 +407,7 @@ function renderJudge() {
     <p class="stem math">${esc(it.stem)}</p>
     <p>本上：${esc(it.childAnswer || "（空）")}</p>
     <div class="verdict ${v.cls}">${v.t}</div>
+    ${it.where || r.where ? `<p class="where">错在哪：${esc(it.where || r.where)}</p>` : ""}
     <p class="reason">${esc(r.reason)}</p>
     ${
       state.settings.presence === "together"
@@ -376,26 +445,68 @@ function renderTeach() {
   const it = currentItem();
   if (!it.stuck && it.subject !== "chinese") it.stuck = "mid";
   const teach = teachOne(it, KB, state.settings, state.memory.skills[pickSkill(it, KB)] || {});
-  it.teachText = teach.lines.join("\n");
+  it.teachText = [...teach.lines, ...(teach.diverge || [])].join("\n");
   it.skill = teach.skill;
-  persist();
+  it.where = teach.where || it.where;
+  if (it.verdict !== "correct") recordError(it, teach);
   const similar = similarMemory(it);
   return shell(
-    "只讲一步",
+    "讲解",
     `
-    ${similar ? `<div class="banner">这题和 ${esc(similar.lastKey)} 那道一样，卡在同一处。</div>` : ""}
-    <div class="card teach">${teach.lines.map((l) => `<p>${esc(l)}</p>`).join("")}</div>
-    <button class="primary" data-act="speak" data-skill="${esc(teach.skill)}" data-text="${esc(teach.speak)}">听讲解</button>
+    ${similar ? `<div class="banner">这题和 ${esc(similar.lastKey)} 那道一样，错在同一处：${esc(similar.where || similar.helpful || "")}</div>` : ""}
+    <p class="where">错在哪：${esc(teach.where || it.where || "这一步还没钉住")}</p>
+    <div class="card teach">
+      <p class="layer">先钉住这一步</p>
+      ${teach.lines.map((l) => `<p>${esc(l)}</p>`).join("")}
+    </div>
+    ${
+      teach.diverge && teach.diverge.length
+        ? `<div class="card teach diverge">
+            <p class="layer">再想开一点</p>
+            ${teach.diverge.map((l) => `<p>${esc(l)}</p>`).join("")}
+          </div>`
+        : ""
+    }
+    <div class="row2">
+      <button class="secondary" data-act="speak" data-skill="${esc(teach.skill)}" data-text="${esc(teach.speak)}" style="margin:0">听这一步</button>
+      <button class="secondary" data-act="speak" data-skill="" data-text="${esc(teach.divergeSpeak || "")}" style="margin:0" ${teach.divergeSpeak ? "" : "disabled"}>听想开的</button>
+    </div>
     ${
       state.settings.presence === "together"
         ? `<button class="secondary" data-act="parent-line">我来说一句</button>`
         : ""
     }
-    ${teach.blocked ? `<button class="secondary" data-act="park">先放着给大人</button>` : `<button class="secondary" data-act="go" data-to="redo">去订正</button>`}
+    ${teach.blocked ? `<button class="secondary" data-act="park">先放着给大人</button>` : `<button class="primary" data-act="go" data-to="redo">去订正</button>`}
     <button class="secondary" data-act="still-lost">还是不会</button>
-    <p class="tiny">听讲解优先用爸爸录过的那句。没录过的句子，用系统中文声音。</p>
+    <p class="tiny">想开一点不给这题得数。听讲解优先用爸爸录过的那句。</p>
   `,
     "stuck"
+  );
+}
+
+function renderErrors() {
+  const list = errorList();
+  if (!list.length) {
+    return shell("错题记", `<div class="card">还没有记下错在哪。今晚判错并讲解后，会出现在这里。</div>`, "home");
+  }
+  return shell(
+    "错题记",
+    `
+    <p class="lede">记下她错在哪，不是正确率。订正过的还留着，方便下次从同一处看。</p>
+    ${list
+      .map((e) => {
+        return `<button class="list-row error-row" type="button">
+          <span>
+            <span class="tiny">${esc(e.key)} · ${esc(subjectName(e.subject))}${e.fixed ? " · 当晚订正过" : ""}</span><br />
+            <strong>${esc(e.where || "未标明")}</strong><br />
+            <span class="tiny">${esc(e.stem || "")}${e.wrongAnswer ? `　本上：${esc(e.wrongAnswer)}` : ""}</span>
+          </span>
+          <span class="chip ${e.fixed ? "ok" : "redo"}">${e.fixed ? "订正过" : "还要盯"}</span>
+        </button>`;
+      })
+      .join("")}
+  `,
+    "home"
   );
 }
 
@@ -419,9 +530,13 @@ function renderMemory() {
   return shell(
     "记下这一下",
     `
-    <div class="card"><p>${esc(teach.lines[0])}</p></div>
-    <button class="primary" data-act="save-mem">对，就记这个</button>
-    <button class="secondary" data-act="go" data-to="home">先收工</button>
+    <div class="card">
+      <p class="layer">她刚才错在哪</p>
+      <p>${esc(teach.where || it.where || teach.lines[0])}</p>
+    </div>
+    <p class="lede">已经记进错题记。订正过也留着，下次从同一处看。</p>
+    <button class="primary" data-act="save-mem">好，回今晚</button>
+    <button class="secondary" data-act="go" data-to="errors">去看错题记</button>
   `,
     "home"
   );
@@ -494,6 +609,7 @@ function render() {
     teach: renderTeach,
     redo: renderRedo,
     memory: renderMemory,
+    errors: renderErrors,
     parent: renderParent,
     voice: renderVoice,
   };
@@ -597,14 +713,16 @@ async function onClick(ev) {
     const it = currentItem();
     it.childAnswer = $("#redo").value.trim();
     const r = applyJudge(it);
-    if (r.verdict === "correct") return go("memory");
+    if (r.verdict === "correct") {
+      markErrorFixed(it);
+      writeMemory(it, teachOne(it, KB, state.settings, {}));
+      return go("memory");
+    }
     it.parked = true;
     persist();
     return go("home");
   }
   if (act === "save-mem") {
-    const it = currentItem();
-    writeMemory(it, teachOne(it, KB, state.settings, {}));
     return go("home");
   }
   if (act === "parent-ok" || act === "p-ok") {

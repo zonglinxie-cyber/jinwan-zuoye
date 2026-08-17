@@ -43,6 +43,17 @@ function nearlyEqual(a, b) {
   return Math.abs(a - b) < 1e-9;
 }
 
+function describeMathMiss(leftVal, herVal) {
+  if (herVal == null || Number.isNaN(Number(herVal))) return "本上还没有能核对的得数";
+  const n = Number(herVal);
+  const ones = Math.abs(Math.trunc(leftVal)) % 10;
+  if (nearlyEqual(n, ones)) return "只写下了个位，整题还没合完";
+  if (leftVal !== 0 && (nearlyEqual(n, leftVal * 10) || nearlyEqual(n, leftVal / 10))) {
+    return "数位可能多了一位或少了一位，先查第二层站哪";
+  }
+  return "得数和验算对不上，先查进位和对位";
+}
+
 function currentEnglishUnit(kb, settings) {
   const id = settings.englishUnit || "u1";
   return (kb.english.units || []).find((u) => u.id === id) || kb.english.units[0];
@@ -58,12 +69,12 @@ function judgeItem(item, kb, settings) {
   const answer = item.childAnswer || "";
 
   if (!item.stemConfirmed) {
-    return { verdict: "blocked", authority: "none", reason: "题目还没对过，不能判。" };
+    return { verdict: "blocked", authority: "none", reason: "题目还没对过，不能判。", where: "" };
   }
 
   if (subject === "math") {
     if (FORBID_MATH.some((w) => stem.includes(w) || (item.teachText || "").includes(w))) {
-      return { verdict: "abstain", authority: "method", reason: "这题或讲法碰到四年级还不能用的方程，留给大人。" };
+      return { verdict: "abstain", authority: "method", reason: "这题或讲法碰到四年级还不能用的方程，留给大人。", where: "" };
     }
     const fromStem = splitEquation(stem);
     const leftVal = safeEval(fromStem.left);
@@ -73,21 +84,27 @@ function judgeItem(item, kb, settings) {
         ? safeEval(typed.right) ?? Number(typed.right)
         : safeEval(answer) ?? Number(normalizeExpr(answer));
     if (leftVal == null) {
-      return { verdict: "abstain", authority: "none", reason: "这题我算不准，不能判对错。" };
+      return { verdict: "abstain", authority: "none", reason: "这题我算不准，不能判对错。", where: "" };
     }
     if (answer.trim() === "" || Number.isNaN(herVal)) {
-      return { verdict: "needs_redo", authority: "calc", reason: "已验算：本上还没有能核对的得数。" };
+      return {
+        verdict: "needs_redo",
+        authority: "calc",
+        reason: "已验算：本上还没有能核对的得数。",
+        where: "本上还没有能核对的得数",
+      };
     }
     if (nearlyEqual(leftVal, Number(herVal))) {
-      return { verdict: "correct", authority: "calc", reason: "已验算" };
+      return { verdict: "correct", authority: "calc", reason: "已验算", where: "" };
     }
-    return { verdict: "needs_redo", authority: "calc", reason: "已验算" };
+    const where = describeMathMiss(leftVal, Number(herVal));
+    return { verdict: "needs_redo", authority: "calc", reason: "已验算", where };
   }
 
   if (subject === "chinese") {
     const type = item.itemType || "fill";
     if (type === "reading" || type === "open") {
-      return { verdict: "coaching", authority: "none", reason: "这题不打分，只看有没有写到点。" };
+      return { verdict: "coaching", authority: "none", reason: "这题不打分，只看有没有写到点。", where: "要看有没有写到点，不打对错" };
     }
     const poemHits = (kb.chinese.publicDomain || []).flatMap((p) => p.lines.map((l) => l.replace(/[，。]/g, "")));
     const fillBank = [
@@ -95,38 +112,41 @@ function judgeItem(item, kb, settings) {
       ...poemHits,
     ];
     const a = normText(answer);
-    if (!a) return { verdict: "needs_redo", authority: "passage", reason: "书上原句还没写。" };
+    if (!a) return { verdict: "needs_redo", authority: "passage", reason: "书上原句还没写。", where: "格子还是空的" };
     const hit = fillBank.find((w) => normText(w) === a);
-    if (hit) return { verdict: "correct", authority: "passage", reason: "书上原句" };
+    if (hit) return { verdict: "correct", authority: "passage", reason: "书上原句", where: "" };
     const close = fillBank.find((w) => normText(w).includes(a) || a.includes(normText(w)));
     if (close && normText(close) !== a) {
       return {
         verdict: "needs_redo",
         authority: "passage",
         reason: "不是课文里的那个词，打开书对三个字。",
+        where: "写成了近义词或少了字，不是课文原词",
       };
     }
-    return { verdict: "abstain", authority: "none", reason: "书上的句子我没对上，不能判。" };
+    return { verdict: "abstain", authority: "none", reason: "书上的句子我没对上，不能判。", where: "" };
   }
 
   if (subject === "english") {
     const unit = currentEnglishUnit(kb, settings);
     const words = allEnglishWords(unit);
     const a = String(answer).trim().toLowerCase().replace(/\s+/g, " ");
-    if (!a) return { verdict: "needs_redo", authority: "wordlist", reason: "本单元词表：还没写。" };
+    if (!a) return { verdict: "needs_redo", authority: "wordlist", reason: "本单元词表：还没写。", where: "单词还没写" };
     const inUnit = words.some((w) => w.en.toLowerCase() === a);
-    if (inUnit) return { verdict: "correct", authority: "wordlist", reason: `本单元词表 · ${unit.name}` };
+    if (inUnit) return { verdict: "correct", authority: "wordlist", reason: `本单元词表 · ${unit.name}`, where: "" };
     const other = (kb.english.units || []).some((u) =>
       u.id !== unit.id && allEnglishWords(u).some((w) => w.en.toLowerCase() === a)
     );
     if (other) {
-      return { verdict: "out_of_unit", authority: "wordlist", reason: "这个词不在本单元，我不当新课讲。" };
+      return { verdict: "out_of_unit", authority: "wordlist", reason: "这个词不在本单元，我不当新课讲。", where: "词在别的单元" };
     }
-    return { verdict: "needs_redo", authority: "wordlist", reason: `本单元词表 · ${unit.name}` };
+    return { verdict: "needs_redo", authority: "wordlist", reason: `本单元词表 · ${unit.name}`, where: "和本单元词表对不上" };
   }
 
-  return { verdict: "abstain", authority: "none", reason: "这一格我不能替老师判。" };
+  return { verdict: "abstain", authority: "none", reason: "这一格我不能替老师判。", where: "" };
 }
+
+
 
 function detectSubject(stem) {
   const s = stem || "";

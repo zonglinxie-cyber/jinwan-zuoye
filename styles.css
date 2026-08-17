@@ -20,7 +20,20 @@ body {
 }
 button, input, textarea, select { font: inherit; }
 
-#app { max-width: 560px; margin: 0 auto; min-height: 100dvh; padding: 16px 16px 40px; }
+#app {
+  max-width: 560px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  padding: calc(16px + env(safe-area-inset-top)) 16px calc(40px + env(safe-area-inset-bottom));
+}
+.wechat-warn {
+  background: #f6ead0;
+  color: #6a4b16;
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 0.95rem;
+}
 
 .top {
   display: flex; align-items: center; justify-content: space-between;
@@ -95,6 +108,22 @@ button, input, textarea, select { font: inherit; }
 .chips button.on { border-color: var(--accent); color: var(--accent); }
 
 .teach p { margin: 0 0 8px; font-size: 1.05rem; }
+.teach .layer, .card .layer {
+  margin: 0 0 10px;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: none;
+  color: var(--accent);
+  font-weight: 650;
+}
+.card.diverge { border-color: #dfc9a4; }
+.where {
+  font-size: 1.05rem;
+  font-weight: 650;
+  margin: 0 0 10px;
+}
+.error-row { align-items: flex-start; }
+.error-row strong { font-size: 1rem; }
 .verdict {
   font-size: 1.6rem; font-weight: 700; margin: 8px 0 6px;
 }
