@@ -44,6 +44,7 @@ function defaultSettings() {
     englishUnit: "u1",
     presence: "solo",
     judgeOnly: false,
+    seeUrl: "",
   };
 }
 
@@ -59,6 +60,8 @@ const state = {
   recording: false,
   clockStart: 0,
   usedMs: 0,
+  busy: "",
+  lastAuto: null,
 };
 
 function persist() {
@@ -143,6 +146,7 @@ function recordError(item, teach) {
   entry.wrongAnswer = item.childAnswer;
   entry.stuck = item.stuck || entry.stuck;
   entry.where = teach.where || item.where || entry.where;
+  entry.why = item.why || entry.why || "";
   entry.helpful = teach.lines[0];
   entry.fixed = false;
   if (!existing) {
@@ -231,6 +235,52 @@ function applyJudge(item) {
   return r;
 }
 
+function autoGradeItem(item) {
+  item.stemConfirmed = true;
+  const r = item.authority === "parent" ? { verdict: item.verdict, reason: item.reason, where: item.where } : applyJudge(item);
+  const d = diagnoseWhy(item, r, state.memory);
+  item.where = d.where || item.where;
+  item.why = d.why;
+  item.stuck = item.stuck || d.stuck;
+  item.skill = d.skill;
+  const teach = teachOne(item, KB, state.settings, state.memory.skills[d.skill] || {});
+  if (r.verdict === "needs_redo" || r.verdict === "coaching") {
+    recordError(item, { ...teach, where: item.where });
+  } else if (r.verdict === "correct") {
+    writeMemory(item, teach);
+  }
+  persist();
+  return { r, d, teach };
+}
+
+function seeEndpoint() {
+  const custom = (state.settings.seeUrl || "").trim().replace(/\/$/, "");
+  if (custom) return custom;
+  if (!/github\.io$/i.test(location.hostname)) return `${location.origin}/api/see`;
+  return "";
+}
+
+async function seeHomework(dataUrl) {
+  const url = seeEndpoint();
+  if (!url) {
+    throw new Error("自动批改要先打开本机看图服务，或在设置里填写看图地址。");
+  }
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      image: dataUrl,
+      subject: state.subject,
+      englishUnit: state.settings.englishUnit,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || data.detail || `看图失败 ${res.status}`);
+  const list = Array.isArray(data.items) ? data.items : [];
+  if (!list.length) throw new Error("图上没有拆出能批的题。换更清楚的一页，或手写一题。");
+  return list;
+}
+
 function subjectName(s) {
   return { math: "数学", chinese: "语文", english: "英语" }[s] || s;
 }
@@ -279,8 +329,10 @@ function renderSetup() {
         <option value="solo">默认：我先做</option>
         <option value="together">默认：大人在旁边</option>
       </select>
+      <p>看图接口（手机用 GitHub 页时要填；用电脑开出来的地址则不用填）</p>
+      <input id="seeUrl" type="text" value="${esc(state.settings.seeUrl || "")}" placeholder="例如 http://192.168.1.108:8787/api/see" />
     </div>
-    <button class="primary" data-act="save-setup">选好了，去批改作业</button>
+    <button class="primary" data-act="save-setup">选好了，去自动批改</button>
     <p class="tiny">教材包 ${esc(KB.meta.packVersion)} · ${esc(KB.meta.updated)}</p>
   `
   );
@@ -298,9 +350,11 @@ function renderHome() {
       <div class="title">今晚作业</div>
       <span class="tiny">周${weekdayName()}</span>
     </div>
-    <p class="lede">今晚就做一件事：<b>批改她本上的题</b>。对的记下对，错的记下错在哪，再讲开。</p>
-    <button class="primary grade-cta" data-act="start-mark">批改作业</button>
-    <p class="tiny" style="margin-top:8px">先选科目，再把题目和本上的答案填上，点批改。</p>
+    <p class="lede">拍今晚那一页：<b>自动批改</b>，想她为什么错，讲给她听，记进错题记。</p>
+    <input class="hidden" id="auto-file" type="file" accept="image/*" capture="environment" />
+    <button class="primary grade-cta" data-act="auto-capture" ${state.busy ? "disabled" : ""}>${state.busy || "拍作业，自动批改"}</button>
+    <button class="secondary" data-act="start-mark">看不清就手写一题批改</button>
+    ${state.lastAuto ? `<p class="tiny">${esc(state.lastAuto)}</p>` : `<p class="tiny" style="margin-top:8px">先选科目。照片会送到本机看图服务拆题，对错仍用验算/词表判，不让模型打分。</p>`}
     <div class="subjects">
       ${["math", "chinese", "english"]
         .map((s) => {
@@ -322,7 +376,7 @@ function renderHome() {
               </button>`;
             })
             .join("")
-        : `<div class="card">还没有批过。点上面的「批改作业」开始。</div>`
+        : `<div class="card">还没有批过。点「拍作业，自动批改」，或手写一题。</div>`
     }
     ${
       mems.length
@@ -349,7 +403,7 @@ function renderMark() {
   return shell(
     "批改作业",
     `
-    <p class="lede">把题目和本上写的填上，点批改。照片只是对照，<b>不会自动认字</b>。</p>
+    <p class="lede">自动看图看不清时，手写题目和本上的答案，再批改。</p>
     <input class="hidden" id="file" type="file" accept="image/*" capture="environment" />
     ${it.photo ? `<img class="photo" alt="作业对照" src="${it.photo}" />` : ""}
     <button class="secondary" data-act="pick-file" style="margin-top:0">${it.photo ? "换一张对照图" : "拍一张作业对照（可选）"}</button>
@@ -391,14 +445,15 @@ function renderJudge() {
     <p>本上：${esc(it.childAnswer || "（空）")}</p>
     <div class="verdict ${v.cls}">${v.t}</div>
     ${it.where || r.where ? `<p class="where">错在哪：${esc(it.where || r.where)}</p>` : ""}
-    <p class="reason">${esc(r.reason)}</p>
+    ${it.why ? `<div class="card"><p class="layer">她为什么会错</p><p>${esc(it.why)}</p></div>` : ""}
+    <p class="reason">${esc(r.reason)}${it.memoryId ? " · 已记入错题记" : ""}</p>
     <p class="section">要改判就点这里</p>
     <div class="row3">
       <button class="mark-ok ${it.verdict === "correct" ? "on" : ""}" data-act="manual-grade" data-grade="ok">对</button>
       <button class="mark-bad ${it.verdict === "needs_redo" ? "on" : ""}" data-act="manual-grade" data-grade="wrong">错</button>
       <button class="mark-park" data-act="manual-grade" data-grade="park">先放着</button>
     </div>
-    ${canTeach && !state.settings.judgeOnly ? `<button class="primary" data-act="go" data-to="stuck">看错在哪，听讲解</button>` : ""}
+    ${canTeach && !state.settings.judgeOnly ? `<button class="primary" data-act="go" data-to="${it.stuck ? "teach" : "stuck"}">听讲解</button>` : ""}
     <button class="secondary" data-act="start-mark">批下一题</button>
     <button class="secondary" data-act="go" data-to="home">回今晚</button>
   `,
@@ -435,8 +490,9 @@ function renderTeach() {
   return shell(
     "讲解",
     `
-    ${similar ? `<div class="banner">这题和 ${esc(similar.lastKey)} 那道一样，错在同一处：${esc(similar.where || similar.helpful || "")}</div>` : ""}
-    <p class="where">错在哪：${esc(teach.where || it.where || "这一步还没钉住")}</p>
+    ${it.why ? `<div class="banner">${esc(it.why)}</div>` : ""}
+    ${similar && !it.why ? `<div class="banner">这题和 ${esc(similar.lastKey)} 那道一样，错在同一处：${esc(similar.where || similar.helpful || "")}</div>` : ""}
+    <p class="where">错在哪：${esc(it.where || teach.where || "这一步还没钉住")}</p>
     <div class="card teach">
       <p class="layer">先钉住这一步</p>
       ${teach.lines.map((l) => `<p>${esc(l)}</p>`).join("")}
@@ -481,6 +537,7 @@ function renderErrors() {
           <span>
             <span class="tiny">${esc(e.key)} · ${esc(subjectName(e.subject))}${e.fixed ? " · 当晚订正过" : ""}</span><br />
             <strong>${esc(e.where || "未标明")}</strong><br />
+            ${e.why ? `<span class="tiny">${esc(e.why)}</span><br />` : ""}
             <span class="tiny">${esc(e.stem || "")}${e.wrongAnswer ? `　本上：${esc(e.wrongAnswer)}` : ""}</span>
           </span>
           <span class="chip ${e.fixed ? "ok" : "redo"}">${e.fixed ? "订正过" : "还要盯"}</span>
@@ -618,8 +675,14 @@ async function onClick(ev) {
     state.settings.booksReady = true;
     state.settings.englishUnit = $("#englishUnit")?.value || "u1";
     state.settings.presence = $("#presence")?.value || "solo";
+    state.settings.seeUrl = $("#seeUrl")?.value.trim() || "";
     persist();
     return go("home");
+  }
+  if (act === "auto-capture") {
+    const file = $("#auto-file");
+    if (file) file.click();
+    return;
   }
   if (act === "start-mark") {
     const it = {
@@ -666,9 +729,8 @@ async function onClick(ev) {
       alert("先把题目写上，才能批改。");
       return;
     }
-    it.stemConfirmed = true;
     it.authority = "";
-    persist();
+    autoGradeItem(it);
     return go("judge");
   }
   if (act === "manual-grade") {
@@ -809,7 +871,62 @@ async function onClick(ev) {
   }
 }
 
+async function runAuto(file) {
+  state.busy = "正在看这一页…";
+  state.lastAuto = "";
+  render();
+  try {
+    const dataUrl = await compressImage(file);
+    const found = await seeHomework(dataUrl);
+    let ok = 0;
+    let bad = 0;
+    let park = 0;
+    let firstBad = null;
+    found.forEach((raw) => {
+      const it = {
+        id: uid(),
+        subject: raw.subject || state.subject,
+        stem: raw.stem,
+        childAnswer: raw.childAnswer || "",
+        work: raw.work || "",
+        photo: dataUrl,
+        stemConfirmed: false,
+        verdict: "",
+        confidence: raw.confidence,
+      };
+      items().push(it);
+      if ((raw.confidence || 1) < 0.45) {
+        it.parked = true;
+        it.verdict = "abstain";
+        it.why = "图上这题不够清楚，不敢自动批。";
+        park += 1;
+        return;
+      }
+      const { r } = autoGradeItem(it);
+      if (r.verdict === "correct") ok += 1;
+      else if (r.verdict === "needs_redo") {
+        bad += 1;
+        if (!firstBad) firstBad = it;
+      } else park += 1;
+    });
+    persist();
+    state.lastAuto = `这一页：对 ${ok} · 错 ${bad} · 不敢批 ${park}。点题目可听讲解。`;
+    state.busy = "";
+    if (firstBad) return go("judge", firstBad.id);
+    return go("home");
+  } catch (err) {
+    state.busy = "";
+    state.lastAuto = err.message || String(err);
+    render();
+  }
+}
+
 function onChange(ev) {
+  if (ev.target.id === "auto-file" && ev.target.files && ev.target.files[0]) {
+    runAuto(ev.target.files[0]);
+    ev.target.value = "";
+    return;
+  }
   if (ev.target.id === "file" && ev.target.files && ev.target.files[0]) {
     const stem = $("#stem");
     const ans = $("#ans");

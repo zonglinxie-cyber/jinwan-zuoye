@@ -1,4 +1,4 @@
-const CACHE = "jw-2026-08-17-grade-cta";
+const CACHE = "jw-2026-08-17-auto";
 const ASSETS = [
   "./",
   "./index.html",
@@ -6,6 +6,7 @@ const ASSETS = [
   "./app.js",
   "./judge.js",
   "./teach.js",
+  "./why.js",
   "./speak.js",
   "./manifest.webmanifest",
   "./kb/meta.json",
