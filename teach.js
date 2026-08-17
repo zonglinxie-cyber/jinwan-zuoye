@@ -257,16 +257,34 @@ function pickSkill(item, kb) {
   return item.stuck || "spell";
 }
 
+const PRACTICE = {
+  carry: "换一道，只看进位：47×26，个位乘完，个位写下几？肩膀上写几？先不要写出整道题的得数。",
+  "align-tens": "换一道，只看第二层：208×34，用十位的 3 去乘，写下来的第一个数字要站在哪一位下面？",
+  "read-zero": "换一道，只问零：2 005 0000，中间那个 0 读不读？末尾那些 0 读不读？",
+  hectare: "换一道：边长 100 米的正方形是多少公顷？先想这一块地，再换单位。",
+  protractor: "换一道：顶点对好了，0 刻度在左边那一圈。另一条边该读哪一圈？",
+  read: "换一道：先只说两句——已知什么，求什么。先别列式。",
+  setup: "换一道：糖 24 颗分给 6 个小朋友，求的是合、剩、几份，还是每一份？",
+  mid: "换一道：先对准个位和个位。这一位做完，再走下一位。",
+  check: "换一道：得数出来了，先估成整十整百，看是不是还在附近。先不要改得数。",
+  locate: "换一道：题目若问「从哪里看出来」，先用手指住课文那一段，再写。",
+  ask: "换一道：先看题目要找原词，还是用因为所以自己说。",
+  "fill-exact": "换一道：练习册要课文原词。打开书，对三个字，不要换近义词。",
+  sentence: "换一道：先口头说完有人、有事、有结果的一句，再写。",
+  spell: "换一道：盖住两边，只看中间这个字母，再写一遍。",
+  word: "换一道：今晚只用这一页词表。先让词站回 I can ____. 再写。",
+  write: "换一道：盖住书，只写这一个词。写完再掀开对。",
+};
+
 function packFor(skill) {
-  return (
-    SKILL_PACKS[skill] || {
-      where: "这一步还没钉住",
-      step: ["一步只做一个动作。先不要报整道题的得数。"],
-      diverge: ["想开一点：先回到这一步在干什么，再往下做。"],
-      speak: "一步只做一个动作。",
-      divergeSpeak: "先回到这一步在干什么。",
-    }
-  );
+  const base = SKILL_PACKS[skill] || {
+    where: "这一步还没钉住",
+    step: ["一步只做一个动作。先不要报整道题的得数。"],
+    diverge: ["先回到这一步在干什么，再往下做。"],
+    speak: "一步只做一个动作。",
+    divergeSpeak: "先回到这一步在干什么。",
+  };
+  return Object.assign({ practice: PRACTICE[skill] || "换一道：还是刚才那一步，数字换一换。" }, base);
 }
 
 function teachOne(item, kb, settings, memory) {
@@ -319,6 +337,7 @@ function teachOne(item, kb, settings, memory) {
     diverge,
     speak: pack.speak || lines.join(" "),
     divergeSpeak: pack.divergeSpeak || diverge.join(" "),
+    practice: pack.practice || PRACTICE[skill] || "",
     blocked: false,
   };
 }

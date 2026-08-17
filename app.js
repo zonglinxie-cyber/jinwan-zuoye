@@ -245,6 +245,7 @@ function autoGradeItem(item) {
   item.skill = d.skill;
   const teach = teachOne(item, KB, state.settings, state.memory.skills[d.skill] || {});
   if (r.verdict === "needs_redo" || r.verdict === "coaching") {
+    item.wrongAnswer = item.childAnswer;
     recordError(item, { ...teach, where: item.where });
   } else if (r.verdict === "correct") {
     writeMemory(item, teach);
@@ -350,7 +351,7 @@ function renderHome() {
       <div class="title">今晚作业</div>
       <span class="tiny">周${weekdayName()}</span>
     </div>
-    <p class="lede">拍今晚那一页：<b>自动批改</b>，想她为什么错，讲给她听，记进错题记。</p>
+    <p class="lede">先批改，再讲解，再订正。她先知道对错，再听为什么，再在本子上改。</p>
     <input class="hidden" id="auto-file" type="file" accept="image/*" capture="environment" />
     <button class="primary grade-cta" data-act="auto-capture" ${state.busy ? "disabled" : ""}>${state.busy || "拍作业，自动批改"}</button>
     <button class="secondary" data-act="start-mark">看不清就手写一题批改</button>
@@ -429,96 +430,146 @@ function renderJudge() {
   if (!it) return renderHome();
   const r = it.authority === "parent" ? { verdict: it.verdict, reason: it.reason, where: it.where } : applyJudge(it);
   const map = {
-    correct: { t: "批改结果：对", cls: "ok" },
-    needs_redo: { t: "批改结果：错", cls: "redo" },
-    coaching: { t: "这题不自动打分，请你批", cls: "" },
-    abstain: { t: "系统批不了，请你批", cls: "park" },
+    correct: { t: "这题对了", cls: "ok" },
+    needs_redo: { t: "这题错了", cls: "redo" },
+    coaching: { t: "这题不打对错，一起看", cls: "" },
+    abstain: { t: "这题我验不准", cls: "park" },
     out_of_unit: { t: "这个词不在本单元", cls: "park" },
     blocked: { t: "题目还没填完", cls: "park" },
   };
   const v = map[r.verdict] || map.abstain;
-  const canTeach = r.verdict === "needs_redo" || r.verdict === "coaching" || r.verdict === "abstain";
+  const wrong = r.verdict === "needs_redo" || r.verdict === "coaching";
   return shell(
-    "批改结果",
+    "1 · 批改",
     `
+    <p class="tiny">第一步：先知道对错。</p>
     <p class="stem math">${esc(it.stem)}</p>
-    <p>本上：${esc(it.childAnswer || "（空）")}</p>
+    <p>本上写的：${esc(it.childAnswer || "（空）")}</p>
     <div class="verdict ${v.cls}">${v.t}</div>
-    ${it.where || r.where ? `<p class="where">错在哪：${esc(it.where || r.where)}</p>` : ""}
-    ${it.why ? `<div class="card"><p class="layer">她为什么会错</p><p>${esc(it.why)}</p></div>` : ""}
-    <p class="reason">${esc(r.reason)}${it.memoryId ? " · 已记入错题记" : ""}</p>
-    <p class="section">要改判就点这里</p>
+    ${
+      wrong && (it.where || r.where)
+        ? `<p class="where">错落在：${esc(it.where || r.where)}</p>`
+        : ""
+    }
+    <p class="reason">${esc(r.reason)}</p>
+    ${
+      wrong
+        ? `<button class="primary grade-cta" data-act="start-teach">听讲解</button>
+           <p class="tiny">先听为什么会错、这一步怎么想，再回本子上改。</p>`
+        : r.verdict === "abstain" || r.verdict === "out_of_unit"
+          ? `<button class="primary" data-act="go" data-to="parent">留给大人看</button>`
+          : `<button class="primary" data-act="start-mark">批下一题</button>`
+    }
+    <p class="section">改判</p>
     <div class="row3">
-      <button class="mark-ok ${it.verdict === "correct" ? "on" : ""}" data-act="manual-grade" data-grade="ok">对</button>
-      <button class="mark-bad ${it.verdict === "needs_redo" ? "on" : ""}" data-act="manual-grade" data-grade="wrong">错</button>
+      <button class="mark-ok ${it.verdict === "correct" ? "on" : ""}" data-act="manual-grade" data-grade="ok">其实是对的</button>
+      <button class="mark-bad ${it.verdict === "needs_redo" ? "on" : ""}" data-act="manual-grade" data-grade="wrong">其实是错的</button>
       <button class="mark-park" data-act="manual-grade" data-grade="park">先放着</button>
     </div>
-    ${canTeach && !state.settings.judgeOnly ? `<button class="primary" data-act="go" data-to="${it.stuck ? "teach" : "stuck"}">听讲解</button>` : ""}
-    <button class="secondary" data-act="start-mark">批下一题</button>
     <button class="secondary" data-act="go" data-to="home">回今晚</button>
   `,
     "home"
   );
 }
 
-function renderStuck() {
-  const it = currentItem();
-  const chips =
-    it.subject === "math" ? KB.math.stuckChips : it.subject === "chinese" ? KB.chinese.stuckChips : KB.english.stuckChips;
-  return shell(
-    "卡在哪一步？",
-    `
-    <p class="lede">只点一个。点完只讲这一步。</p>
-    <div class="chips">
-      ${chips.map((c) => `<button data-act="stuck" data-v="${c.id}" class="${it.stuck === c.id ? "on" : ""}">${esc(c.label)}</button>`).join("")}
-    </div>
-    <button class="primary" data-act="go" data-to="teach" ${it.stuck ? "" : "disabled"}>讲解这题</button>
-  `,
-    "judge"
-  );
-}
-
 function renderTeach() {
   const it = currentItem();
-  if (!it.stuck && it.subject !== "chinese") it.stuck = "mid";
+  if (!it) return renderHome();
+  if (!it.stuck) it.stuck = it.subject === "chinese" ? "locate" : "mid";
   const teach = teachOne(it, KB, state.settings, state.memory.skills[pickSkill(it, KB)] || {});
   it.teachText = [...teach.lines, ...(teach.diverge || [])].join("\n");
   it.skill = teach.skill;
-  it.where = teach.where || it.where;
+  it.where = it.where || teach.where;
+  it.practice = teach.practice || "";
   if (it.verdict !== "correct") recordError(it, teach);
   const similar = similarMemory(it);
+  if (!it.spoken && teach.speak) {
+    it.spoken = true;
+    persist();
+    setTimeout(() => Speak.speak(teach.speak, teach.skill), 350);
+  }
   return shell(
-    "讲解",
+    "2 · 讲解",
     `
-    ${it.why ? `<div class="banner">${esc(it.why)}</div>` : ""}
-    ${similar && !it.why ? `<div class="banner">这题和 ${esc(similar.lastKey)} 那道一样，错在同一处：${esc(similar.where || similar.helpful || "")}</div>` : ""}
-    <p class="where">错在哪：${esc(it.where || teach.where || "这一步还没钉住")}</p>
+    <p class="tiny">第二步：听懂为什么会错，这一步该怎么想。</p>
+    ${similar ? `<div class="banner">和 ${esc(similar.lastKey)} 那道错在同一处：${esc(similar.where || similar.helpful || "")}</div>` : ""}
+    ${it.why ? `<div class="card"><p class="layer">为什么会写成这样</p><p>${esc(it.why)}</p></div>` : ""}
     <div class="card teach">
-      <p class="layer">先钉住这一步</p>
+      <p class="layer">这一步该怎么想</p>
       ${teach.lines.map((l) => `<p>${esc(l)}</p>`).join("")}
     </div>
     ${
       teach.diverge && teach.diverge.length
         ? `<div class="card teach diverge">
-            <p class="layer">再想开一点</p>
-            ${teach.diverge.map((l) => `<p>${esc(l)}</p>`).join("")}
+            <p class="layer">想开一点（不报这题得数）</p>
+            ${teach.diverge.slice(0, 2).map((l) => `<p>${esc(l)}</p>`).join("")}
           </div>`
         : ""
     }
-    <div class="row2">
-      <button class="secondary" data-act="speak" data-skill="${esc(teach.skill)}" data-text="${esc(teach.speak)}" style="margin:0">听这一步</button>
-      <button class="secondary" data-act="speak" data-skill="" data-text="${esc(teach.divergeSpeak || "")}" style="margin:0" ${teach.divergeSpeak ? "" : "disabled"}>听想开的</button>
-    </div>
+    <button class="secondary" data-act="speak" data-skill="${esc(teach.skill)}" data-text="${esc(teach.speak)}">再听一遍</button>
     ${
       state.settings.presence === "together"
-        ? `<button class="secondary" data-act="parent-line">我来说一句</button>`
+        ? `<button class="secondary" data-act="parent-line">大人补一句</button>`
         : ""
     }
-    ${teach.blocked ? `<button class="secondary" data-act="park">先放着给大人</button>` : `<button class="primary" data-act="go" data-to="redo">去订正</button>`}
-    <button class="secondary" data-act="still-lost">还是不会</button>
-    <p class="tiny">想开一点不给这题得数。听讲解优先用爸爸录过的那句。</p>
+    ${
+      teach.blocked
+        ? `<button class="secondary" data-act="park">先放着给大人</button>`
+        : `<button class="primary grade-cta" data-act="go" data-to="do">听懂了，去本子上改</button>`
+    }
+    <button class="secondary" data-act="still-lost">听了还是不会</button>
   `,
-    "stuck"
+    "judge"
+  );
+}
+
+function renderDo() {
+  const it = currentItem();
+  if (!it) return renderHome();
+  const teach = teachOne(it, KB, state.settings, {});
+  if (it.redoOk) {
+    return shell(
+      "3 · 订正",
+      `
+      <p class="tiny">第三步：本子改对了。再说一遍，换一道还是不是同一处。</p>
+      <div class="card">
+        <p class="layer">用自己的话说</p>
+        <p>刚才错在：${esc(it.where || teach.where)}</p>
+      </div>
+      ${
+        it.saidBack
+          ? `<p class="where">好。你会说这一步了。</p>`
+          : `<button class="primary" data-act="said-back">对，就是这一步</button>`
+      }
+      ${
+        (it.practice || teach.practice)
+          ? `<div class="card teach diverge">
+              <p class="layer">换一道，还是刚才那一步</p>
+              <p>${esc(it.practice || teach.practice)}</p>
+              <p class="tiny">写在本子上。不要把今晚那题的得数抄过来。</p>
+            </div>`
+          : ""
+      }
+      <p class="lede">这一处已经记进错题记。下次碰上同一处会提醒。</p>
+      <button class="primary" data-act="start-mark">批下一题</button>
+      <button class="secondary" data-act="go" data-to="home">回今晚</button>
+    `,
+      "teach"
+    );
+  }
+  return shell(
+    "3 · 订正",
+    `
+    <p class="tiny">第三步：回本子上改。改完把订正写在这里，我再批一次。</p>
+    <p class="stem math">${esc(it.stem)}</p>
+    <p>原先本上：${esc(it.wrongAnswer || it.childAnswer || "（空）")}</p>
+    ${it.redoHint ? `<div class="overtime">${esc(it.redoHint)}</div>` : ""}
+    <input id="redo" type="text" placeholder="订正后的得数 / 词语 / 单词" />
+    <button class="primary grade-cta" data-act="recheck">改完了，再批一次</button>
+    ${(it.redoTries || 0) >= 3 ? `<button class="secondary" data-act="park">先放着给大人</button>` : ""}
+    <p class="tiny">先写在本子上，再打进来。不要只在屏幕上改。</p>
+  `,
+    "teach"
   );
 }
 
@@ -645,10 +696,11 @@ function render() {
     capture: renderMark,
     type: renderMark,
     judge: renderJudge,
-    stuck: renderStuck,
+    stuck: renderTeach,
     teach: renderTeach,
-    redo: renderRedo,
-    memory: renderMemory,
+    redo: renderDo,
+    do: renderDo,
+    memory: renderDo,
     errors: renderErrors,
     parent: renderParent,
     voice: renderVoice,
@@ -764,8 +816,22 @@ async function onClick(ev) {
     state.itemId = btn.dataset.id;
     const it = currentItem();
     if (!it.stemConfirmed) return go("mark");
-    if (it.verdict === "needs_redo") return go("judge");
+    if (it.redoOk) return go("do");
     return go("judge");
+  }
+  if (act === "start-teach") {
+    const it = currentItem();
+    if (!it) return;
+    if (!it.stuck) it.stuck = it.subject === "chinese" ? "locate" : "mid";
+    it.spoken = false;
+    persist();
+    return go("teach");
+  }
+  if (act === "said-back") {
+    const it = currentItem();
+    if (it) it.saidBack = true;
+    persist();
+    return render();
   }
   if (act === "stuck") {
     currentItem().stuck = btn.dataset.v;
@@ -796,16 +862,31 @@ async function onClick(ev) {
   }
   if (act === "recheck") {
     const it = currentItem();
-    it.childAnswer = $("#redo").value.trim();
+    const typed = ($("#redo") && $("#redo").value.trim()) || "";
+    if (!typed) {
+      it.redoHint = "先在本子上改，再把订正写进来。";
+      persist();
+      return go("do");
+    }
+    if (!it.wrongAnswer) it.wrongAnswer = it.childAnswer;
+    it.childAnswer = typed;
+    it.authority = "";
+    it.redoTries = (it.redoTries || 0) + 1;
     const r = applyJudge(it);
     if (r.verdict === "correct") {
+      it.redoOk = true;
+      it.redoHint = "";
       markErrorFixed(it);
       writeMemory(it, teachOne(it, KB, state.settings, {}));
-      return go("memory");
+      persist();
+      return go("do");
     }
-    it.parked = true;
+    it.redoHint =
+      it.redoTries >= 3
+        ? "还对不上。再改一遍，或先放着喊大人。"
+        : "还不对。回到本子上看刚才讲的那一步，再改。";
     persist();
-    return go("home");
+    return go("do");
   }
   if (act === "save-mem") {
     return go("home");
@@ -910,7 +991,7 @@ async function runAuto(file) {
       } else park += 1;
     });
     persist();
-    state.lastAuto = `这一页：对 ${ok} · 错 ${bad} · 不敢批 ${park}。点题目可听讲解。`;
+    state.lastAuto = `这一页：对 ${ok} · 错 ${bad} · 不敢批 ${park}。错的先看批改，再听讲解，再回本子改。`;
     state.busy = "";
     if (firstBad) return go("judge", firstBad.id);
     return go("home");

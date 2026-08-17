@@ -1,4 +1,4 @@
-const CACHE = "jw-2026-08-17-auto";
+const CACHE = "jw-2026-08-17-loop";
 const ASSETS = [
   "./",
   "./index.html",
